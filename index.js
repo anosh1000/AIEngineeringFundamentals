@@ -1,13 +1,6 @@
-import OpenAI from "openai";
-import { autoResizeTextarea, checkEnvironment, setLoading } from "./utils.js";
-checkEnvironment();
-
-// Initialize an OpenAI client for your provider using env vars
-const openai = new OpenAI({
-  apiKey: process.env.AI_KEY,
-  baseURL: process.env.AI_URL,
-  dangerouslyAllowBrowser: true,
-});
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import { autoResizeTextarea, setLoading } from "./utils.js";
 
 // Get UI elements
 const giftForm = document.getElementById("gift-form");
@@ -20,18 +13,6 @@ function start() {
   giftForm.addEventListener("submit", handleGiftRequest);
 }
 
-// Initialize messages array with system prompt
-const messages = [
-  {
-    role: "system",
-    content: `You are the Gift Genie!
-    Make your gift suggestions thoughtful and practical.
-    Your response must be under 100 words. 
-    Skip intros and conclusions. 
-    Only output gift suggestions.`,
-  },
-];
-
 async function handleGiftRequest(e) {
   // Prevent default form submission
   e.preventDefault();
@@ -40,43 +21,45 @@ async function handleGiftRequest(e) {
   const userPrompt = userInput.value.trim();
   if (!userPrompt) return;
 
-  /**
-   * Challenge: Adding AI to the Gift Genie UI
-   *
-   * The UI is wired up.
-   * The loading state is ready.
-   * But no AI request happens yet.
-   *
-   * Your task:
-   *
-   * 1. Add a user message to the messages array
-   * 2. Send a chat completions request
-   * 3. Extract the assistant’s response
-   * 4. Render it inside #output-content
-   *
-   * 💡 Check the hints folder for more guidance!
-   */
-
-  // Set loading state
+  // Set loading state (hides output, animates lamp)
   setLoading(true);
 
-  messages.push({
-    role: "user",
-    content: userPrompt
-  })
+  try {
+    // Send fetch request to /api/gift
+    const response = await fetch("/api/gift", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userPrompt }),
+    });
 
-  const response = await openai.chat.completions.create({
-    model: process.env.AI_MODEL,
-    messages
-  })
+    const data = await response.json()
 
-  console.log(response)
-  const giftSuggestions = response.choices[0].message.content
+    if (!response.ok) {
+      throw new Error(data.message)
+    }
 
-  outputContent.textContent = giftSuggestions
+    // Parse response and extract giftSuggestions
+    const giftSuggestions = data.giftSuggestions;
 
-  // Clear loading state
-  setLoading(false);
+    // Convert Markdown to HTML
+    const html = marked.parse(giftSuggestions);
+
+    // Sanitize the HTML to prevent XSS attacks
+    const safeHTML = DOMPurify.sanitize(html);
+
+    // Render the result
+    outputContent.innerHTML = safeHTML;
+  } catch (error) {
+    // Log the error for debugging
+    console.error(error);
+
+    // Display friendly error message
+    outputContent.textContent =
+      "Sorry, I can't access what I need right now. Please try again in a bit.";
+  } finally {
+    // Always clear loading state (shows output, resets lamp)
+    setLoading(false);
+  }
 }
 
 start();
